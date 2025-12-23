@@ -149,7 +149,10 @@
         let state = 'TREE'; 
         let selectedIndex = 0;
         let handX = 0.5;
-
+        let explodeStartTime = null; 
+        const HOLD_DURATION = 3000; // 3000ms = 3 giây
+        let lastHandPos = { x: 0, y: 0 }; // Lưu vị trí tay trước đó
+const MOVE_THRESHOLD = 0.015;     // Độ lệch cho phép để coi là "đứng im"
         // ==========================================
         // 3. THREE.JS SYSTEM Vandiep
         // ==========================================
@@ -408,7 +411,7 @@
             requestAnimationFrame(animate);
             const time = Date.now() * 0.001;
             const speed = 0.08;
-            const handRotY = (handX - 0.5) * 4.0;
+            const handRotY = (handX - 0.5) * 8.0;
 
             updateParticleGroup(groupGold, 'gold', state, speed, handRotY, time);
             updateParticleGroup(groupRed, 'red', state, speed, handRotY, time);
@@ -484,7 +487,7 @@
             hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
 
             hands.onResults(results => {
-                ctx.clearRect(0,0,235,150); ctx.drawImage(results.image, 0, 0, 235, 150);
+                ctx.clearRect(0,0,240,150); ctx.drawImage(results.image, 0, 0, 240, 150);
 
                 // --- Hand Logic  ---
                 if (results.multiHandLandmarks.length === 2) {
@@ -492,7 +495,9 @@
                     const distIndex = Math.hypot(h1[8].x - h2[8].x, h1[8].y - h2[8].y);
                     const distThumb = Math.hypot(h1[4].x - h2[4].x, h1[4].y - h2[4].y);
                     if (distIndex < 0.15 && distThumb < 0.15) {
-                        state = 'HEART'; return;
+                        state = 'HEART';
+                        explodeStartTime = null; 
+                        return;
                     }
                 }
 
@@ -503,14 +508,40 @@
                     let openDist = 0; tips.forEach(i => openDist += Math.hypot(lm[i].x-wrist.x, lm[i].y-wrist.y));
                     const avgDist = openDist / 4;
                     const pinchDist = Math.hypot(lm[4].x-lm[8].x, lm[4].y-lm[8].y);
-
+                    let rawX = lm[9].x; 
+    handX = (rawX - 0.3) / 0.4; // Tập trung vào vùng giữa camera (từ 0.3 đến 0.7)
+    if(handX < 0) handX = 0; if(handX > 1) handX = 1;
                     if (avgDist < 0.25) { 
-                        state = 'TREE'; 
-                    } else if (pinchDist < 0.05) {
-                        state = 'PHOTO'; 
-                    } else {
-                        state = 'EXPLODE'; 
-                    }
+    state = 'TREE'; 
+    explodeStartTime = null; // Reset khi nắm tay
+} else if (pinchDist < 0.05) {
+    state = 'PHOTO'; 
+    explodeStartTime = null; // Reset khi chụm tay
+} else {
+    // ĐÂY LÀ LOGIC XÒE TAY (EXPLODE)
+    // 1. Tính toán vị trí tay nhạy hơn cho camera nhỏ
+    const currentX = lm[9].x;
+    const currentY = lm[9].y;
+
+    // 2. Tính movement
+    const movement = Math.hypot(currentX - lastHandPos.x, currentY - lastHandPos.y);
+
+    // 3. Cập nhật handX để lướt ảnh (Zoom vùng hoạt động của tay)
+    handX = (currentX - 0.25) / 0.5; 
+    if(handX < 0) handX = 0; if(handX > 1) handX = 1;
+
+    if (movement > MOVE_THRESHOLD) {
+        explodeStartTime = Date.now(); 
+        state = 'EXPLODE'; 
+    } else {
+        if (explodeStartTime && (Date.now() - explodeStartTime > HOLD_DURATION)) {
+            state = 'PHOTO'; 
+        } else {
+            state = 'EXPLODE';
+        }
+    }
+    lastHandPos = { x: currentX, y: currentY };
+}
                 } else {
                     state = 'TREE'; 
                 }
